@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Giám Sát ESP32</title>
+    <!-- Thư viện Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* === CẤU HÌNH PHÔNG CHỮ VÀ GIAO DIỆN CHÍNH === */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            padding: 20px;
+        }
+
+        /* Nút Mô Phỏng Góc Trên Trái */
+        .btn-top-left {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            background-color: #f59e0b;
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+            transition: all 0.2s ease;
+            z-index: 99;
+        }
+
+        .btn-top-left:hover {
+            background-color: #d97706;
+            transform: translateY(-2px);
+        }
+
+        /* Container Khung Dashboard */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding-top: 45px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        header h1 {
+            font-size: 26px;
+            color: #0284c7;
+            margin-bottom: 5px;
+        }
+
+        header p {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        /* Bố cục Grid 2 cột */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .card h2 {
+            font-size: 16px;
+            color: #334155;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 8px;
+        }
+
+        .chart-card {
+            grid-column: 1 / -1;
+        }
+
+        /* Hiển thị dữ liệu số */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .stat-item {
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stat-item .label {
+            font-size: 12px;
+            color: #64748b;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .stat-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #0284c7;
+        }
+
+        .stat-item .value.status-on {
+            color: #16a34a;
+        }
+
+        .stat-item .value.status-off {
+            color: #dc2626;
+        }
+
+        /* Khung tổng hợp 12h */
+        .summary-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .summary-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #16a34a;
+        }
+
+        .note {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        /* Biểu đồ */
+        .chart-container {
+            position: relative;
+            height: 320px;
+            width: 100%;
+        }
+
+        /* MODAL MÔ PHỎNG */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            font-size: 20px;
+            color: #64748b;
+            cursor: pointer;
+            border: none;
+            background: none;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #334155;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 9px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .form-group input:focus {
+            border-color: #0284c7;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: #0284c7;
+            color: #ffffff;
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            background-color: #0369a1;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Nút Mô Phỏng -->
+    <button class="btn-top-left" onclick="openModal()">⚡ Mô phỏng</button>
+
+    <div class="container">
+        <header>
+            <h1>Hệ Thống Giám Sát Nhiệt Độ & Điện Năng Ổ Cắm</h1>
+            <p>Dữ liệu nhận từ thiết bị ESP32 qua WiFi</p>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Thẻ 1: Thông số thời gian thực từ ESP32 -->
+            <div class="card">
+                <h2>Thông Số Hiện Tại (ESP32)</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="label">Nhiệt độ cảm biến</span>
+                        <span class="value" id="val-temp">35.0 °C</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Công suất thực</span>
+                        <span class="value" id="val-power">330 W</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Dòng điện ước tính</span>
+                        <span class="value" id="val-amp">1.50 A</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Trạng thái Rơ-le</span>
+                        <span class="value status-on" id="val-relay">BẬT (An toàn)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thẻ 2: Tổng hợp 12 giờ -->
+            <div class="card">
+                <h2>Tổng Hợp 12 Giờ Qua</h2>
+                <div class="summary-list">
+                    <div class="summary-item">
+                        <span class="label">Điện năng tiêu thụ tổng</span>
+                        <span class="value" id="val-kwh">0.000 kWh</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="label">Nhiệt độ trung bình</span>
+                        <span class="value" style="color: #0284c7;" id="val-avg-temp">35.0 °C</span>
+                    </div>
+                </div>
+                <p class="note">*Dữ liệu tổng hợp tự động cập nhật liên tục dựa trên giá trị nhận được.</p>
+            </div>
+
+            <!-- Thẻ 3: Biểu đồ Nhiệt độ 30 phút -->
+            <div class="card chart-card">
+                <h2>Biểu Đồ Nhiệt Độ - 30 Phút Qua</h2>
+                <div class="chart-container">
+                    <canvas id="temperatureChart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- CỬA SỔ MÔ PHỎNG DỮ LIỆU (MODAL) -->
+    <div id="sim-modal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <h3 style="margin-bottom: 15px;">Mô Phỏng Truyền Dữ Liệu</h3>
+            <form onsubmit="submitSimulation(event)">
+                <div class="form-group">
+                    <label for="sim-temp">Nhiệt độ cảm biến (°C):</label>
+                    <input type="number" step="0.1" id="sim-temp" value="36.5" required>
+                </div>
+                <div class="form-group">
+                    <label for="sim-power">Công suất tiêu thụ (W):</label>
+                    <input type="number" step="0.1" id="sim-power" value="450" required>
+                </div>
+                <div class="form-group">
+                    <label for="sim-volt">Điện áp lưới (V):</label>
+                    <input type="number" id="sim-volt" value="220" required>
+                </div>
+                <button type="submit" class="btn-submit">Nạp Dữ Liệu Vào Hệ Thống</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- QUẢN LÝ DỮ LIỆU & BIỂU ĐỒ ---
+        const MAX_POINTS = 30; // Lưu 30 điểm tương ứng 30 phút
+        let timeLabels = Array.from({length: MAX_POINTS}, (_, i) => `${MAX_POINTS - i}p trước`);
+        let temperatureData = new Array(MAX_POINTS).fill(35.0); // Khởi tạo mảng nhiệt độ với giá trị 35.0
+        
+        let lastTemperature = 35.0; 
+        let totalEnergyJoules = 0;   // Tích lũy năng lượng tính kWh
+        let tempSum = 0;
+        let sampleCount = 0;
+
+        // Khởi tạo Chart.js cho Nhiệt độ
+        const ctx = document.getElementById('temperatureChart').getContext('2d');
+        const temperatureChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timeLabels,
+                datasets: [{
+                    label: 'Nhiệt độ (°C)',
+                    data: temperatureData,
+                    borderColor: '#f97316', // Màu cam
+                    backgroundColor: 'rgba(249, 115, 22, 0.15)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        title: { display: true, text: 'Nhiệt độ (°C)' },
+                        suggestedMin: 20, // Khoảng giá trị gợi ý trục Y
+                        suggestedMax: 80
+                    },
+                    x: {
+                        title: { display: true, text: 'Thời gian' }
+                    }
+                }
+            }
+        });
+
+        // --- XỬ LÝ DỮ LIỆU NHẬN TỪ ESP32 HOẶC MÔ PHỎNG ---
+        function updateDashboard(temperature, power, relayState) {
+            lastTemperature = temperature;
+
+            // 1. Hiển thị dữ liệu lên các thẻ
+            document.getElementById('val-temp').innerText = temperature.toFixed(1) + " °C";
+            document.getElementById('val-power').innerText = power.toFixed(1) + " W";
+            
+            // Tính dòng điện I = P / 220V
+            let current = power / 220.0;
+            document.getElementById('val-amp').innerText = current.toFixed(2) + " A";
+
+            // Relay State (theo code C++: HIGH = 1 = Ngắt, LOW = 0 = Mạch đóng)
+            const relayElem = document.getElementById('val-relay');
+            if (relayState === 1 || relayState === true) {
+                relayElem.innerText = "NGẮT (Bảo vệ)";
+                relayElem.className = "value status-off";
+            } else {
+                relayElem.innerText = "BẬT (An toàn)";
+                relayElem.className = "value status-on";
+            }
+
+            // 2. Cập nhật biểu đồ nhiệt độ
+            temperatureChart.data.labels.shift();
+            let now = new Date();
+            temperatureChart.data.labels.push(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
+            
+            temperatureChart.data.datasets[0].data.shift();
+            temperatureChart.data.datasets[0].data.push(temperature.toFixed(1)); // Đẩy trực tiếp giá trị nhiệt độ
+            temperatureChart.update();
+
+            // 3. Tích lũy dữ liệu cho tổng hợp 12h
+            tempSum += temperature;
+            sampleCount++;
+            
+            // Công suất (W) * 60 giây = Năng lượng (Joule)
+            totalEnergyJoules += (power * 60); 
+            
+            // Cập nhật thẻ tổng hợp
+            let avgTemp = tempSum / sampleCount;
+            let kwh = totalEnergyJoules / (3600 * 1000); // Chuyển Joules sang kWh
+
+            document.getElementById('val-avg-temp').innerText = avgTemp.toFixed(1) + " °C";
+            document.getElementById('val-kwh').innerText = kwh.toFixed(3) + " kWh";
+        }
+
+        // --- HÀM TỰ ĐỘNG CẬP NHẬT MỖI 1 PHÚT (60000ms) ---
+        setInterval(() => {
+            // Tự động tạo dao động nhẹ cho nhiệt độ nếu không có thao tác (để biểu đồ di chuyển)
+            let currentTemp = lastTemperature + (Math.random() * 0.4 - 0.2); 
+            let currentPower = parseFloat(document.getElementById('val-power').innerText);
+            
+            // Nếu nhiệt độ > 65 thì giả lập kích hoạt Relay (1)
+            let relayIsTriggered = currentTemp > 65 ? 1 : 0;
+            
+            updateDashboard(currentTemp, currentPower, relayIsTriggered);
+        }, 60000);
+
+        // --- BẬT/TẮT MODAL MÔ PHỎNG ---
+        function openModal() {
+            document.getElementById('sim-modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('sim-modal').style.display = 'none';
+        }
+
+        function submitSimulation(event) {
+            event.preventDefault();
+            let simTemp = parseFloat(document.getElementById('sim-temp').value);
+            let simPower = parseFloat(document.getElementById('sim-power').value);
+
+            // Cập nhật hệ thống bằng dữ liệu mô phỏng
+            updateDashboard(simTemp, simPower, simTemp >= 65 ? 1 : 0);
+            
+            closeModal();
+        }
+
+        // Đóng modal khi bấm ra ngoài vùng nội dung
+        window.onclick = function(e) {
+            let modal = document.getElementById('sim-modal');
+            if (e.target === modal) {
+                closeModal();
+            }
+        };
+    </script>
+</body>
+</html>
