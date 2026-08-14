@@ -328,134 +328,124 @@
         </div>
     </div>
 
-    <script>
-        // --- QUẢN LÝ DỮ LIỆU & BIỂU ĐỒ ---
-        const MAX_POINTS = 30; // Lưu 30 điểm tương ứng 30 phút
-        let timeLabels = Array.from({length: MAX_POINTS}, (_, i) => `${MAX_POINTS - i}p trước`);
-        let temperatureData = new Array(MAX_POINTS).fill(35.0); // Khởi tạo mảng nhiệt độ với giá trị 35.0
+<!-- Thêm thư viện Firebase SDK (Phiên bảncompat dùng chung cho Realtime Database) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+    // --- CẤU HÌNH FIREBASE CỦA BẠN ---
+    const firebaseConfig = {
+        databaseURL: "https://truyendulieu-default-rtdb.asia-southeast1.firebasedatabase.app/"
+    };
+
+    // Khởi tạo Firebase
+    firebase.initializeApp(firebaseConfig);
+    const dbRef = firebase.database().ref('sensor'); // Trỏ tới node 'sensor' trên Database
+
+    // --- QUẢN LÝ BIỂU ĐỒ ---
+    const MAX_POINTS = 30;
+    let timeLabels = Array.from({length: MAX_POINTS}, (_, i) => `${MAX_POINTS - i}p trước`);
+    let temperatureData = new Array(MAX_POINTS).fill(35.0);
+    
+    let totalEnergyJoules = 0;
+    let tempSum = 0;
+    let sampleCount = 0;
+
+    const ctx = document.getElementById('temperatureChart').getContext('2d');
+    const temperatureChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timeLabels,
+            datasets: [{
+                label: 'Nhiệt độ (°C)',
+                data: temperatureData,
+                borderColor: '#f97316',
+                backgroundColor: 'rgba(249, 115, 22, 0.15)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { title: { display: true, text: 'Nhiệt độ (°C)' }, suggestedMin: 20, suggestedMax: 80 },
+                x: { title: { display: true, text: 'Thời gian' } }
+            }
+        }
+    });
+
+    // --- LẮNG NGHE DỮ LIỆU REAL-TIME TỪ FIREBASE ---
+    // Ngay khi ESP32 đẩy dữ liệu lên Firebase, hàm này sẽ tự động chạy để cập nhật web
+    dbRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        let temperature = parseFloat(data.temperature);
+        let power = parseFloat(data.power);
+        let relayState = data.relay;
+
+        // 1. Cập nhật giao diện số liệu
+        document.getElementById('val-temp').innerText = temperature.toFixed(1) + " °C";
+        document.getElementById('val-power').innerText = power.toFixed(1) + " W";
         
-        let lastTemperature = 35.0; 
-        let totalEnergyJoules = 0;   // Tích lũy năng lượng tính kWh
-        let tempSum = 0;
-        let sampleCount = 0;
+        let current = power / 220.0;
+        document.getElementById('val-amp').innerText = current.toFixed(2) + " A";
 
-        // Khởi tạo Chart.js cho Nhiệt độ
-        const ctx = document.getElementById('temperatureChart').getContext('2d');
-        const temperatureChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: timeLabels,
-                datasets: [{
-                    label: 'Nhiệt độ (°C)',
-                    data: temperatureData,
-                    borderColor: '#f97316', // Màu cam
-                    backgroundColor: 'rgba(249, 115, 22, 0.15)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        title: { display: true, text: 'Nhiệt độ (°C)' },
-                        suggestedMin: 20, // Khoảng giá trị gợi ý trục Y
-                        suggestedMax: 80
-                    },
-                    x: {
-                        title: { display: true, text: 'Thời gian' }
-                    }
-                }
-            }
+        const relayElem = document.getElementById('val-relay');
+        if (relayState === 1 || relayState === true) {
+            relayElem.innerText = "NGẮT (Bảo vệ)";
+            relayElem.className = "value status-off";
+        } else {
+            relayElem.innerText = "BẬT (An toàn)";
+            relayElem.className = "value status-on";
+        }
+
+        // 2. Cập nhật biểu đồ
+        temperatureChart.data.labels.shift();
+        let now = new Date();
+        temperatureChart.data.labels.push(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
+        
+        temperatureChart.data.datasets[0].data.shift();
+        temperatureChart.data.datasets[0].data.push(temperature.toFixed(1));
+        temperatureChart.update();
+
+        // 3. Tổng hợp 12h
+        tempSum += temperature;
+        sampleCount++;
+        totalEnergyJoules += (power * 60); 
+        
+        let avgTemp = tempSum / sampleCount;
+        let kwh = totalEnergyJoules / (3600 * 1000);
+
+        document.getElementById('val-avg-temp').innerText = avgTemp.toFixed(1) + " °C";
+        document.getElementById('val-kwh').innerText = kwh.toFixed(3) + " kWh";
+    });
+
+    // --- NÚT MÔ PHỎNG (Vẫn giữ lại để test dự phòng trên web) ---
+    function openModal() { document.getElementById('sim-modal').style.display = 'flex'; }
+    function closeModal() { document.getElementById('sim-modal').style.display = 'none'; }
+
+    function submitSimulation(event) {
+        event.preventDefault();
+        let simTemp = parseFloat(document.getElementById('sim-temp').value);
+        let simPower = parseFloat(document.getElementById('sim-power').value);
+
+        // Mô phỏng bằng cách ghi thẳng dữ liệu lên Firebase (web và phần cứng sẽ đồng bộ)
+        firebase.database().ref('sensor').set({
+            temperature: simTemp,
+            power: simPower,
+            relay: simTemp >= 65 ? 1 : 0
         });
+        
+        closeModal();
+    }
 
-        // --- XỬ LÝ DỮ LIỆU NHẬN TỪ ESP32 HOẶC MÔ PHỎNG ---
-        function updateDashboard(temperature, power, relayState) {
-            lastTemperature = temperature;
-
-            // 1. Hiển thị dữ liệu lên các thẻ
-            document.getElementById('val-temp').innerText = temperature.toFixed(1) + " °C";
-            document.getElementById('val-power').innerText = power.toFixed(1) + " W";
-            
-            // Tính dòng điện I = P / 220V
-            let current = power / 220.0;
-            document.getElementById('val-amp').innerText = current.toFixed(2) + " A";
-
-            // Relay State (theo code C++: HIGH = 1 = Ngắt, LOW = 0 = Mạch đóng)
-            const relayElem = document.getElementById('val-relay');
-            if (relayState === 1 || relayState === true) {
-                relayElem.innerText = "NGẮT (Bảo vệ)";
-                relayElem.className = "value status-off";
-            } else {
-                relayElem.innerText = "BẬT (An toàn)";
-                relayElem.className = "value status-on";
-            }
-
-            // 2. Cập nhật biểu đồ nhiệt độ
-            temperatureChart.data.labels.shift();
-            let now = new Date();
-            temperatureChart.data.labels.push(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
-            
-            temperatureChart.data.datasets[0].data.shift();
-            temperatureChart.data.datasets[0].data.push(temperature.toFixed(1)); // Đẩy trực tiếp giá trị nhiệt độ
-            temperatureChart.update();
-
-            // 3. Tích lũy dữ liệu cho tổng hợp 12h
-            tempSum += temperature;
-            sampleCount++;
-            
-            // Công suất (W) * 60 giây = Năng lượng (Joule)
-            totalEnergyJoules += (power * 60); 
-            
-            // Cập nhật thẻ tổng hợp
-            let avgTemp = tempSum / sampleCount;
-            let kwh = totalEnergyJoules / (3600 * 1000); // Chuyển Joules sang kWh
-
-            document.getElementById('val-avg-temp').innerText = avgTemp.toFixed(1) + " °C";
-            document.getElementById('val-kwh').innerText = kwh.toFixed(3) + " kWh";
-        }
-
-        // --- HÀM TỰ ĐỘNG CẬP NHẬT MỖI 1 PHÚT (60000ms) ---
-        setInterval(() => {
-            // Tự động tạo dao động nhẹ cho nhiệt độ nếu không có thao tác (để biểu đồ di chuyển)
-            let currentTemp = lastTemperature + (Math.random() * 0.4 - 0.2); 
-            let currentPower = parseFloat(document.getElementById('val-power').innerText);
-            
-            // Nếu nhiệt độ > 65 thì giả lập kích hoạt Relay (1)
-            let relayIsTriggered = currentTemp > 65 ? 1 : 0;
-            
-            updateDashboard(currentTemp, currentPower, relayIsTriggered);
-        }, 60000);
-
-        // --- BẬT/TẮT MODAL MÔ PHỎNG ---
-        function openModal() {
-            document.getElementById('sim-modal').style.display = 'flex';
-        }
-
-        function closeModal() {
-            document.getElementById('sim-modal').style.display = 'none';
-        }
-
-        function submitSimulation(event) {
-            event.preventDefault();
-            let simTemp = parseFloat(document.getElementById('sim-temp').value);
-            let simPower = parseFloat(document.getElementById('sim-power').value);
-
-            // Cập nhật hệ thống bằng dữ liệu mô phỏng
-            updateDashboard(simTemp, simPower, simTemp >= 65 ? 1 : 0);
-            
-            closeModal();
-        }
-
-        // Đóng modal khi bấm ra ngoài vùng nội dung
-        window.onclick = function(e) {
-            let modal = document.getElementById('sim-modal');
-            if (e.target === modal) {
-                closeModal();
-            }
-        };
-    </script>
+    window.onclick = function(e) {
+        let modal = document.getElementById('sim-modal');
+        if (e.target === modal) closeModal();
+    };
+</script>
 </body>
 </html>
